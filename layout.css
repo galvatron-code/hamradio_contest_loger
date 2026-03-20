@@ -1,0 +1,52 @@
+/* Sticky footer */
+html, body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+/* Główna część strony */
+.page-wrapper {
+  flex: 1 0 auto;
+}
+
+/* Stopka przy dole */
+.footer {
+  flex-shrink: 0;
+}
+
+/* Delikatny padding zależny od ekranu */
+body.p-page {
+  padding: 0.5rem;  /* coś jak p-2 na mobile */
+}
+
+@media (min-width: 768px) {
+  body.p-page {
+    padding: 1rem;  /* coś jak p-3 na desktopie */
+  }
+}
+
+/* Karty formularzy – login/admin, wąskie na desktopie, pełne na tel. */
+.card-narrow {
+  max-width: 400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Opcjonalne centrowanie nagłówków na małych ekranach */
+@media (max-width: 767.98px) {
+  .heading-mobile-center {
+    text-align: center;
+  }
+}
+@media (max-width: 575.98px) {
+  .table-sm td,
+  .table-sm th {
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+}
