@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin.php
+Disallow: /logout.php
+
+Sitemap: https://zawody.sp6zhp.pl/sitemap.php

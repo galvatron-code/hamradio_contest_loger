@@ -3,7 +3,7 @@ session_start();
 require 'db.php';
 
 // Pobierz aktywny contest (ostatni)
-$contest  = null;
+$contest    = null;
 $max_rounds = 1;
 $stmt = $conn->prepare("SELECT * FROM contests ORDER BY id DESC LIMIT 1");
 $stmt->execute();
@@ -11,72 +11,50 @@ $rc = $stmt->get_result();
 if ($rc && $rc->num_rows > 0) {
     $contest    = $rc->fetch_assoc();
     $max_rounds = (int)$contest['rounds'];
+    // Sprawdź czy zawody są zakończone
+    $zawody_zakonczone = false;
+if ($contest && !empty($contest['start_datetime'])) {
+    $start   = strtotime($contest['start_datetime']);
+    $elapsed = time() - $start;
+    $dur     = (int)$contest['round_duration_sec'];
+    $brk     = (int)$contest['break_duration_sec'];
+    $cycle   = $dur + $brk;
+    $rounds  = (int)$contest['rounds'];
+    if ($elapsed >= $cycle * $rounds) {
+        $zawody_zakonczone = true;
+    }
+ }
 }
 $stmt->close();
 
-// Pobierz sparowane QSO z podziałem na rundy
-// (bez CTE – podzapytanie zagnieżdżone)
-$sql = "
-SELECT kursant, round_no, COUNT(*) AS punkty
-FROM (
-  SELECT l1.kursant AS kursant, l1.round_no AS round_no
-  FROM qso_log l1
-  JOIN qso_log l2
-    ON l1.kursant <> l2.kursant
-   AND l1.znak_qso = l2.kursant
-   AND l2.znak_qso = l1.kursant
-   AND l1.my_qso_no = l2.peer_qso_no
-   AND l2.my_qso_no = l1.peer_qso_no
-   AND l1.id < l2.id
-   AND l1.round_no = l2.round_no
-   AND ABS(TIMESTAMPDIFF(SECOND, l1.created_at, l2.created_at)) <= 45
-  GROUP BY
-    LEAST(l1.kursant, l2.kursant),
-    GREATEST(l1.kursant, l2.kursant),
-    l1.round_no
-
-  UNION ALL
-
-  SELECT l2.kursant AS kursant, l2.round_no AS round_no
-  FROM qso_log l1
-  JOIN qso_log l2
-    ON l1.kursant <> l2.kursant
-   AND l1.znak_qso = l2.kursant
-   AND l2.znak_qso = l1.kursant
-   AND l1.my_qso_no = l2.peer_qso_no
-   AND l2.my_qso_no = l1.peer_qso_no
-   AND l1.id < l2.id
-   AND l1.round_no = l2.round_no
-   AND ABS(TIMESTAMPDIFF(SECOND, l1.created_at, l2.created_at)) <= 45
-  GROUP BY
-    LEAST(l1.kursant, l2.kursant),
-    GREATEST(l1.kursant, l2.kursant),
-    l1.round_no
-) AS wszyscy
-GROUP BY kursant, round_no
-ORDER BY kursant ASC, round_no ASC
-";
-
-$result = $conn->query($sql);
-
-// Zbuduj tablicę: $scores[kursant][runda] = punkty
-$scores  = [];   // $scores['ZHP001'][1] = 3
-$totals  = [];   // $totals['ZHP001'] = 5
+$scores       = [];
+$totals       = [];
 $rounds_found = [];
 
-if ($result && $result->num_rows > 0) {
-    while ($row = $result->fetch_assoc()) {
-        $k = $row['kursant'];
-        $r = (int)$row['round_no'];
-        $p = (int)$row['punkty'];
+if ($contest) {
+    $contest_id = (int)$contest['id'];
+    $stmt = $conn->prepare(
+        "SELECT kursant, round_no, punkty FROM ranking_view WHERE contest_id = ? ORDER BY kursant ASC, round_no ASC"
+    );
+    $stmt->bind_param("i", $contest_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-        $scores[$k][$r] = $p;
-        $totals[$k]     = ($totals[$k] ?? 0) + $p;
-        $rounds_found[$r] = true;
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            $k = $row['kursant'];
+            $r = (int)$row['round_no'];
+            $p = (int)$row['punkty'];
+
+            $scores[$k][$r]   = $p;
+            $totals[$k]       = ($totals[$k] ?? 0) + $p;
+            $rounds_found[$r] = true;
+        }
     }
+    $stmt->close();
 }
 
-// Jeśli są rundy w danych, użyj ich; jeśli nie – pokaż przynajmniej tyle ile w contest
+// Ustal listę rund
 $all_rounds = [];
 for ($i = 1; $i <= $max_rounds; $i++) {
     $all_rounds[] = $i;
@@ -88,7 +66,6 @@ foreach (array_keys($rounds_found ?? []) as $r) {
 }
 sort($all_rounds);
 
-// Posortuj kursantów malejąco po sumie
 arsort($totals);
 ?>
 <!doctype html>
@@ -100,26 +77,35 @@ arsort($totals);
   <meta http-equiv="refresh" content="5">
   <link rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="layout.css">
+  <link rel="stylesheet" href="layout.css">  
 </head>
-
 <body class="p-page" style="background-color:#2F4F2F; color:#ffffff;">
 <div class="container">
+
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h1>Ranking QSO – kurs</h1>
-    <a href="index.php" class="btn btn-sm"
-       style="background-color:#A6CE39; border-color:#7FA32C; color:#000;">
-      Powrót do loga
-    </a>
+    <div>
+      <a href="history.php" class="btn btn-sm me-1"
+         style="background-color:#A6CE39; border-color:#7FA32C; color:#000;">
+        Archiwum wyników
+      </a>
+      <a href="index.php" class="btn btn-sm"
+         style="background-color:#A6CE39; border-color:#7FA32C; color:#000;">
+        Powrót do loga
+      </a>
+    </div>
   </div>
 
-   <?php if ($contest): ?>
+  <?php if ($contest): ?>
     <div class="alert alert-secondary mb-3">
       <strong><?= htmlspecialchars($contest['name']) ?></strong>
       &nbsp;|&nbsp; Rund: <?= $contest['rounds'] ?>
       &nbsp;|&nbsp; Czas rundy: <?= ($contest['round_duration_sec'] / 60) ?> min
       &nbsp;|&nbsp; Przerwa: <?= ($contest['break_duration_sec'] / 60) ?> min
       &nbsp;|&nbsp; Start: <?= htmlspecialchars($contest['start_datetime']) ?>
+      <?php if (!empty($contest['require_peer_qso_no'])): ?>
+        &nbsp;|&nbsp; <span class="badge bg-warning text-dark">Nr QSO wymagany</span>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 
@@ -138,26 +124,44 @@ arsort($totals);
         </thead>
         <tbody>
           <?php if (!empty($totals)): ?>
-            <?php $lp = 1; foreach ($totals as $kursant => $total): ?>
-              <tr>
-                <td><?= $lp++ ?></td>
-                <td><strong><?= htmlspecialchars($kursant) ?></strong></td>
-                <?php foreach ($all_rounds as $r): ?>
-                  <td class="text-center">
-                    <?= isset($scores[$kursant][$r])
-                        ? $scores[$kursant][$r]
-                        : '–' ?>
-                  </td>
-                <?php endforeach; ?>
-                <td class="text-center fw-bold"
-                    style="background-color:#e8f5e9;">
-                  <?= $total ?>
-                </td>
-              </tr>
-            <?php endforeach; ?>
+            
+            
+            
+            
+    <?php $lp = 1; foreach ($totals as $kursant => $total): ?>
+    <tr>
+	<td>
+        <?php if ($lp <= 3): ?>
+    	    <?= ['', '🥇', '🥈', '🥉'][$lp] ?>
+        <?php else: ?>
+    	    <?= $lp ?>
+        <?php endif; ?>
+	</td>
+	<td>
+        <strong><?= htmlspecialchars($kursant) ?></strong>
+        <?php if ($lp <= 3 && $zawody_zakonczone): ?>
+    	    <a href="diploma.php?contest_id=<?= $contest['id'] ?>&kursant=<?= urlencode($kursant) ?>"
+            class="btn btn-sm ms-2"
+            style="background-color:#A6CE39; border-color:#7FA32C; color:#000;"
+            target="_blank">
+            Dyplom
+    	    </a>
+        <?php endif; ?>
+	</td>
+	<?php foreach ($all_rounds as $r): ?>
+        <td class="text-center">
+    	    <?= isset($scores[$kursant][$r]) ? $scores[$kursant][$r] : '–' ?>
+        </td>
+	<?php endforeach; ?>
+	<td class="text-center fw-bold" style="background-color:#e8f5e9;">
+        <?= $total ?>
+	</td>
+    </tr>
+    <?php $lp++; endforeach; ?>
+            
           <?php else: ?>
             <tr>
-              <td colspan="<?= 3 + count($all_rounds) ?>">
+              <td colspan="<?= 3 + count($all_rounds) ?>" class="text-center text-muted">
                 Brak przyznanych punktów.
               </td>
             </tr>
@@ -166,10 +170,10 @@ arsort($totals);
       </table>
     </div>
   </div>
+
 </div>
 
 <?php include 'footer.php'; ?>
-
 </body>
 </html>
 <?php

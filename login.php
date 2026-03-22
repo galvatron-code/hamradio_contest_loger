@@ -1,19 +1,25 @@
 <?php
 session_start();
-require 'db.php'; // tu trzymasz $conn
+require 'db.php';
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $login = $_POST["login"] ?? "";
     $haslo = $_POST["haslo"] ?? "";
 
-    $stmt = $conn->prepare("SELECT id, haslo FROM kursanci WHERE login = ?");
+    $stmt = $conn->prepare("SELECT id, haslo, display_name FROM kursanci WHERE login = ?");
     $stmt->bind_param("s", $login);
     $stmt->execute();
-    $stmt->bind_result($id, $hash);
+    $stmt->bind_result($id, $hash, $display_name);
     if ($stmt->fetch() && hash('sha256', $haslo) === $hash) {
-        $_SESSION["kursant_id"] = $id;
+        $_SESSION["kursant_id"]    = $id;
         $_SESSION["kursant_login"] = $login;
-        header("Location: index.php");
+        $stmt->close();
+        // Jeśli brak nazwy drużyny — przekieruj do profilu
+        if (empty($display_name)) {
+            header("Location: profile.php?redirect=1");
+        } else {
+            header("Location: index.php");
+        }
         exit;
     }
     $stmt->close();
@@ -26,10 +32,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
   <title>Logowanie kursant</title>
   <link rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="layout.css">
+  <link rel="stylesheet" href="layout.css">  
 </head>
 <body class="p-page" style="background-color:#2F4F2F; color:#ffffff;">
-
 
 <center>
 <div class="container">
@@ -68,6 +73,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
        style="background-color:#A6CE39; border-color:#7FA32C; color:#000;"
        href="ranking.php">
       Ranking
+    </a>
+
+    <a class="btn btn-sm mt-1 me-2"
+       style="background-color:#A6CE39; border-color:#7FA32C; color:#000;"
+       href="history.php">
+      Archiwum
     </a>
 
     <a class="btn btn-sm mt-1 me-2"
